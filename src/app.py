@@ -16,9 +16,14 @@ st.set_page_config(
 st.markdown("""
     <style>
     .main { background-color: #f0f4f7; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border-left: 5px solid #005eb8; }
+    .stMetric { 
+        background-color: #ffffff; 
+        padding: 15px; 
+        border-radius: 10px; 
+        border-left: 5px solid #005eb8; 
+    }
     </style>
-    """, unsafe_allow_none=True)
+    """, unsafe_allow_html=True) # Change was made here
 
 # 2. Optimized Data/Model Loader
 @st.cache_resource
