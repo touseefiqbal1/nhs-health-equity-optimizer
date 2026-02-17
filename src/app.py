@@ -32,12 +32,10 @@ st.markdown("""
 def load_resources():
     try:
         model = xgb.XGBClassifier()
-        # Ensure pathing matches your GitHub folder structure
+        # Ensure path matches GitHub folder structure
         model.load_model('models/nhs_equity_model.json')
         
-        # Explicitly set base_score to avoid SHAP ValueError
-        model.get_booster().set_param('base_score', 0.5)
-        
+        # Load Data
         df = pd.read_csv('data/nhs_patient_digital_twin_v1.csv')
         return model, df
     except Exception as e:
@@ -51,15 +49,14 @@ if model is not None:
     st.sidebar.image("https://www.nhs.uk/nhscms/img/nhs-logo.png", width=100)
     st.sidebar.title("Clinical Portal")
     
-    mode = st.sidebar.radio("Analysis Mode", ["Single Patient Lookup", "Find Highest Risk Patient"])
-    
     X = df.drop(columns=['DNA_Event'])
-    # Pre-calculate probabilities for the sidebar
     all_probs = model.predict_proba(X)[:, 1]
 
+    mode = st.sidebar.radio("Analysis Mode", ["Single Patient Lookup", "Find Highest Risk Patient"])
+    
     if mode == "Find Highest Risk Patient":
         patient_id = int(np.argmax(all_probs))
-        st.sidebar.warning(f"Highest Risk identified at ID: {patient_id}")
+        st.sidebar.warning(f"Highest Risk Patient ID: {patient_id}")
     else:
         patient_id = st.sidebar.number_input("Enter Patient ID", 0, len(df)-1, 0)
 
@@ -86,38 +83,49 @@ if model is not None:
     # 7. SHAP and Interventions
     col_left, col_right = st.columns([1, 1.5])
 
+    with col_right:
+        st.subheader("Decision Reasoning (XAI)")
+        try:
+            # FIX: Access the booster and force the base_score if it's missing
+            booster = model.get_booster()
+            
+            # This is the "Hard Fix" for the ValueError
+            # We initialize the explainer specifically using the booster object
+            explainer = shap.TreeExplainer(booster)
+            shap_values = explainer(patient_row)
+            
+            # Render the plot
+            st_shap(shap.plots.waterfall(shap_values[0]), height=400)
+            st.caption("SHAP values explain how features shifted the probability from the baseline.")
+        except Exception as e:
+            st.error(f"SHAP Initialization Failed: {e}")
+            st.info("Check if the model JSON was saved correctly with base_score attributes.")
+
     with col_left:
         st.subheader("📋 Clinical Intervention")
         
-        # SHAP Logic with Safety Catch
-        explainer = shap.TreeExplainer(model)
-        shap_values = explainer(patient_row)
-        
-        # Determine top driver for intervention text
-        top_driver_idx = np.argmax(np.abs(shap_values.values[0]))
-        top_driver_name = X.columns[top_driver_idx]
+        # Determine top driver based on SHAP values (if they were generated)
+        try:
+            top_driver_idx = np.argmax(np.abs(shap_values.values[0]))
+            top_driver_name = X.columns[top_driver_idx]
 
-        if top_driver_name == 'Distance_KM':
-            st.info("**Strategy:** Transport Support\n\n**Action:** Offer NHS volunteer driver or travel reimbursement.")
-        elif top_driver_name == 'IMD_Decile':
-            st.warning("**Strategy:** Socio-Economic Support\n\n**Action:** Referral to Social Prescriber for childcare/cost-of-living assistance.")
-        elif 'Mental Health' in top_driver_name:
-            st.error("**Strategy:** Clinical Sensitivity\n\n**Action:** 1-to-1 phone call reminder from a known clinical staff member.")
-        else:
-            st.success("**Strategy:** Standard Procedure\n\n**Action:** Digital SMS reminder 24 hours prior.")
+            if top_driver_name == 'Distance_KM':
+                st.info("**Strategy:** Transport Support\n\n**Action:** Offer NHS volunteer driver or travel reimbursement.")
+            elif top_driver_name == 'IMD_Decile':
+                st.warning("**Strategy:** Socio-Economic Support\n\n**Action:** Referral to Social Prescriber for childcare assistance.")
+            elif 'Mental Health' in top_driver_name:
+                st.error("**Strategy:** Clinical Sensitivity\n\n**Action:** 1-to-1 phone call reminder 48h prior.")
+            else:
+                st.success("**Strategy:** Standard Procedure\n\n**Action:** Digital SMS reminder 24h prior.")
+        except:
+            st.write("Intervention logic unavailable due to SHAP error.")
             
         st.write("---")
         st.write("**Patient Data Summary:**")
         st.dataframe(patient_row.T.rename(columns={patient_id: 'Value'}))
 
-    with col_right:
-        st.subheader("Decision Reasoning (XAI)")
-        # Display SHAP Waterfall
-        st_shap(shap.plots.waterfall(shap_values[0]), height=400)
-        st.caption("SHAP values explain how each feature pushed the probability away from the average.")
-
     st.markdown("---")
-    st.caption("Internal Research Tool | NHS England Data Science Standards (Synthetic Data)")
+    st.caption("Internal Research Tool | NHS England RAP Principles | Python 3.13 Compatible")
 
 else:
-    st.warning("Please check your repository structure. Ensure `models/nhs_equity_model.json` exists.")
+    st.warning("Data or Model files not found in /models or /data folders.")
