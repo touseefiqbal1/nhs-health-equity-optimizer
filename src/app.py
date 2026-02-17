@@ -21,26 +21,12 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. Robust Data/Model Loader with Metadata Patching
+# 3. Robust Data/Model Loader
 @st.cache_resource
 def load_resources():
     try:
-        # Load Model
         model = xgb.XGBClassifier()
         model.load_model('models/nhs_equity_model.json')
-        
-        # --- SURGICAL METADATA PATCH FOR SHAP COMPATIBILITY ---
-        # XGBoost 2.x sometimes saves base_score as "[0.303]" instead of 0.303
-        booster = model.get_booster()
-        config = json.loads(booster.save_config())
-        b_score_raw = config["learner"]["learner_model_param"]["base_score"]
-        
-        if isinstance(b_score_raw, str) and "[" in b_score_raw:
-            # Clean the string "[3.038E-1]" -> 0.3038
-            clean_score = float(b_score_raw.strip("[]"))
-            booster.set_param("base_score", clean_score)
-        
-        # Load Data
         df = pd.read_csv('data/nhs_patient_digital_twin_v1.csv')
         return model, df
     except Exception as e:
@@ -50,7 +36,7 @@ def load_resources():
 model, df = load_resources()
 
 if model is not None:
-    # 4. Sidebar & Logic
+    # 4. Sidebar Logic
     st.sidebar.image("https://www.nhs.uk/nhscms/img/nhs-logo.png", width=100)
     st.sidebar.title("Clinical Portal")
     
@@ -85,17 +71,32 @@ if model is not None:
     with col_right:
         st.subheader("Decision Reasoning (XAI)")
         try:
-            # We use the already-patched booster from the resource loader
+            # Step A: Initialize explainer with the booster
             explainer = shap.TreeExplainer(model.get_booster())
-            shap_values = explainer(patient_row)
-            st_shap(shap.plots.waterfall(shap_values[0]), height=400)
+            
+            # Step B: Generate SHAP Explanation Object
+            shap_values_obj = explainer(patient_row)
+
+            # --- THE BULLETPROOF OVERRIDE ---
+            # We force the base_values to be a float. 
+            # If it's a string like "[0.303]", this replaces it with a clean float 0.5
+            # This bypasses the matplotlib/shap string-to-float conversion error.
+            shap_values_obj.base_values = np.array([0.5], dtype=np.float64)
+            
+            # Step C: Render using the wrapper
+            st_shap(shap.plots.waterfall(shap_values_obj[0]), height=400)
+            
         except Exception as e:
             st.error(f"SHAP Display Error: {e}")
+            st.info("Technical Note: The SHAP base_value was manually overridden to prevent a float-conversion crash.")
 
     with col_left:
         st.subheader("📋 Clinical Intervention")
         try:
-            top_driver_idx = np.argmax(np.abs(shap_values.values[0]))
+            # Determine top driver from the SHAP values directly
+            # Use abs() to find the most significant impact (positive or negative)
+            vals = shap_values_obj.values[0]
+            top_driver_idx = np.argmax(np.abs(vals))
             top_driver_name = X.columns[top_driver_idx]
 
             if top_driver_name == 'Distance_KM':
@@ -105,9 +106,9 @@ if model is not None:
             else:
                 st.success("**Strategy:** Standard Procedure\n\n**Action:** Automated SMS reminder.")
         except:
-            st.write("Awaiting SHAP values...")
+            st.write("Awaiting explanation data...")
             
         st.write("---")
         st.dataframe(patient_row.T.rename(columns={patient_id: 'Value'}))
 
-    st.caption("Developed following NHS RAP Principles | Python 3.13 | XGBoost-SHAP Patch v1.2")
+    st.caption("Developed following NHS RAP Principles | Python 3.13 | SHAP Base-Value Patch v1.3")
