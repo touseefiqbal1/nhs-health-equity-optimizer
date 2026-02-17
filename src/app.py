@@ -30,7 +30,7 @@ def load_assets():
     try:
         # Load the model
         model = xgb.XGBClassifier()
-        # Ensure your model is in a 'models/' folder on GitHub or update the path
+        # Ensure your model is in a 'models/' folder on GitHub
         model.load_model('models/nhs_equity_model.json')
         
         # --- THE MONKEY PATCH & METADATA FIX ---
@@ -69,6 +69,7 @@ if model is not None:
     st.sidebar.title("Clinical Portal")
     
     features = df.drop(columns=['DNA_Event'])
+    # Calculate probabilities for all patients
     all_probs = model.predict_proba(features)[:, 1]
 
     mode = st.sidebar.radio("Analysis Mode", ["Single Patient Lookup", "Find Highest Risk Patient"])
@@ -124,11 +125,11 @@ if model is not None:
             top_driver_name = features.columns[top_driver_idx]
 
             if top_driver_name == 'Distance_KM':
-                st.info("**Strategy:** Transport Support\n\n**Action:** Provision of NHS volunteer taxi voucher.")
+                st.info("**Strategy:** Transport Support\\n\\n**Action:** Provision of NHS volunteer taxi voucher.")
             elif top_driver_name == 'IMD_Decile':
-                st.warning("**Strategy:** Socio-Economic Support\n\n**Action:** Referral to Social Prescribing Link Worker.")
+                st.warning("**Strategy:** Socio-Economic Support\\n\\n**Action:** Referral to Social Prescribing Link Worker.")
             else:
-                st.success("**Strategy:** Standard Procedure\n\n**Action:** Automated SMS and email reminders.")
+                st.success("**Strategy:** Standard Procedure\\n\\n**Action:** Automated SMS and email reminders.")
         except:
             st.write("Awaiting explanation data...")
             
