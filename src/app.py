@@ -20,7 +20,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. Robust Data/Model Loader with Metadata Patching
+# 3. Robust Data/Model Loader with Monkey Patching
 @st.cache_resource
 def load_resources():
     try:
@@ -28,15 +28,15 @@ def load_resources():
         model = xgb.XGBClassifier()
         model.load_model('models/nhs_equity_model.json')
         
-        # --- THE METADATA PATCH ---
-        # We extract the booster and fix the base_score string error
+        # --- THE MONKEY PATCH & METADATA FIX ---
         booster = model.get_booster()
+        
+        # Fix 1: Define the estimator type manually for SHAP
+        booster._estimator_type = "classifier"
+        
+        # Fix 2: Clean the base_score string error
         config = json.loads(booster.save_config())
-        
-        # Access the problematic base_score
         b_score_raw = config["learner"]["learner_model_param"]["base_score"]
-        
-        # If it's a string like "[0.303]", strip brackets and force to float
         if isinstance(b_score_raw, str) and "[" in b_score_raw:
             clean_score = float(b_score_raw.strip("[]"))
             booster.set_param("base_score", clean_score)
@@ -45,8 +45,10 @@ def load_resources():
         df = pd.read_csv('data/nhs_patient_digital_twin_v1.csv')
         X = df.drop(columns=['DNA_Event'])
         
+        # Fix 3: Set feature names explicitly on the booster
+        booster.feature_names = X.columns.tolist()
+        
         # Initialize Explainer using the patched booster
-        # Passing the booster directly avoids the "not callable" error
         explainer = shap.TreeExplainer(booster)
         
         return model, df, explainer
@@ -95,7 +97,7 @@ if model is not None:
             # Generate SHAP values
             shap_values_obj = explainer(patient_row)
             
-            # Final Safety: Force base_values to float64 to prevent plotting errors
+            # Final Safety: Force base_values to float64
             if not isinstance(shap_values_obj.base_values[0], (float, np.float64)):
                 shap_values_obj.base_values = np.array([0.5], dtype=np.float64)
             
@@ -106,7 +108,6 @@ if model is not None:
     with col_left:
         st.subheader("📋 Clinical Intervention")
         try:
-            # Use the SHAP values to find the top driver
             vals = shap_values_obj.values[0]
             top_driver_idx = np.argmax(np.abs(vals))
             top_driver_name = X.columns[top_driver_idx]
@@ -114,14 +115,13 @@ if model is not None:
             if top_driver_name == 'Distance_KM':
                 st.info("**Strategy:** Transport Support\n**Action:** Provision of NHS volunteer driver.")
             elif top_driver_name == 'IMD_Decile':
-                st.warning("**Strategy:** Socio-Economic Support\n**Action:** Referral to Social Prescriber.")
+                st.warning("**Strategy:** Socio-Economic Support\n**Action:** Referral to Social Prescribing Link Worker.")
             else:
                 st.success("**Strategy:** Standard Procedure\n**Action:** Automated SMS reminder.")
         except:
             st.write("Awaiting explanation data...")
             
         st.write("---")
-        st.write("**Patient Demographics:**")
         st.dataframe(patient_row.T.rename(columns={patient_id: 'Value'}))
 
-    st.caption("NHS RAP Principles | Python 3.13 | Booster-Metadata Patch v1.5")
+    st.caption("NHS RAP Principles | Python 3.13 | Booster-Mixin Patch v1.6")
