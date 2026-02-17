@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import xgboost as xgb
 import shap
-import matplotlib.pyplot as plt
+import json
 from streamlit_shap import st_shap
 
 # 1. Page Configuration
@@ -20,7 +20,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. Robust Data/Model/Explainer Loader
+# 3. Robust Data/Model Loader with Metadata Patching
 @st.cache_resource
 def load_resources():
     try:
@@ -28,15 +28,26 @@ def load_resources():
         model = xgb.XGBClassifier()
         model.load_model('models/nhs_equity_model.json')
         
+        # --- THE METADATA PATCH ---
+        # We extract the booster and fix the base_score string error
+        booster = model.get_booster()
+        config = json.loads(booster.save_config())
+        
+        # Access the problematic base_score
+        b_score_raw = config["learner"]["learner_model_param"]["base_score"]
+        
+        # If it's a string like "[0.303]", strip brackets and force to float
+        if isinstance(b_score_raw, str) and "[" in b_score_raw:
+            clean_score = float(b_score_raw.strip("[]"))
+            booster.set_param("base_score", clean_score)
+        
         # Load Data
         df = pd.read_csv('data/nhs_patient_digital_twin_v1.csv')
         X = df.drop(columns=['DNA_Event'])
         
-        # --- ROBUST EXPLAINER INITIALIZATION ---
-        # Passing the booster + feature names often bypasses the metadata loader bug
-        booster = model.get_booster()
-        # We use a small background sample to stabilize the base_value
-        explainer = shap.Explainer(model, X.head(100))
+        # Initialize Explainer using the patched booster
+        # Passing the booster directly avoids the "not callable" error
+        explainer = shap.TreeExplainer(booster)
         
         return model, df, explainer
     except Exception as e:
@@ -46,7 +57,7 @@ def load_resources():
 model, df, explainer = load_resources()
 
 if model is not None:
-    # 4. Sidebar Logic
+    # 4. Sidebar & Navigation
     st.sidebar.image("https://www.nhs.uk/nhscms/img/nhs-logo.png", width=100)
     st.sidebar.title("Clinical Portal")
     
@@ -81,38 +92,36 @@ if model is not None:
     with col_right:
         st.subheader("Decision Reasoning (XAI)")
         try:
-            # Generate SHAP values using the pre-loaded explainer
+            # Generate SHAP values
             shap_values_obj = explainer(patient_row)
-
-            # FORCE FLOAT: If base_values is still a string-list, overwrite it
+            
+            # Final Safety: Force base_values to float64 to prevent plotting errors
             if not isinstance(shap_values_obj.base_values[0], (float, np.float64)):
                 shap_values_obj.base_values = np.array([0.5], dtype=np.float64)
             
-            # Render using the wrapper
             st_shap(shap.plots.waterfall(shap_values_obj[0]), height=400)
-            
         except Exception as e:
-            st.error(f"SHAP Display Error: {e}")
-            st.info("Check README for Troubleshooting the XGBoost-SHAP metadata conflict.")
+            st.error(f"SHAP Plotting Error: {e}")
 
     with col_left:
         st.subheader("📋 Clinical Intervention")
         try:
-            # Use the pre-computed SHAP values for intervention logic
+            # Use the SHAP values to find the top driver
             vals = shap_values_obj.values[0]
             top_driver_idx = np.argmax(np.abs(vals))
             top_driver_name = X.columns[top_driver_idx]
 
             if top_driver_name == 'Distance_KM':
-                st.info("**Strategy:** Transport Support\n\n**Action:** Provision of NHS volunteer driver.")
+                st.info("**Strategy:** Transport Support\n**Action:** Provision of NHS volunteer driver.")
             elif top_driver_name == 'IMD_Decile':
-                st.warning("**Strategy:** Socio-Economic Support\n\n**Action:** Referral to Social Prescribing Link Worker.")
+                st.warning("**Strategy:** Socio-Economic Support\n**Action:** Referral to Social Prescriber.")
             else:
-                st.success("**Strategy:** Standard Procedure\n\n**Action:** Automated SMS reminder.")
+                st.success("**Strategy:** Standard Procedure\n**Action:** Automated SMS reminder.")
         except:
             st.write("Awaiting explanation data...")
             
         st.write("---")
+        st.write("**Patient Demographics:**")
         st.dataframe(patient_row.T.rename(columns={patient_id: 'Value'}))
 
-    st.caption("Developed following NHS RAP Principles | Python 3.13 | SHAP Explainer Bypass v1.4")
+    st.caption("NHS RAP Principles | Python 3.13 | Booster-Metadata Patch v1.5")
