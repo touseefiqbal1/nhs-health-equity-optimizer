@@ -5,3 +5,4 @@ streamlit
 streamlit-shap
 pandas
 numpy
+matplotlib
