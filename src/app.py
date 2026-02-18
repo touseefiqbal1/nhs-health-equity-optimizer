@@ -5,18 +5,13 @@ import xgboost as xgb
 import shap
 from streamlit_shap import st_shap
 
-# =========================================================
-# 1. Page Configuration
-# =========================================================
 st.set_page_config(
     page_title="NHS Health-Equity Optimizer",
     page_icon="🏥",
     layout="wide"
 )
 
-# =========================================================
-# 2. Custom CSS (Dark NHS Theme - Readable)
-# =========================================================
+
 st.markdown("""
 <style>
 
@@ -112,9 +107,7 @@ iframe {
 """, unsafe_allow_html=True)
 
 
-# =========================================================
-# 3. Load Model + Data + SHAP Explainer
-# =========================================================
+
 @st.cache_resource
 def load_assets():
     try:
@@ -135,17 +128,13 @@ def load_assets():
 
 model, df, features, explainer = load_assets()
 
-# =========================================================
-# 4. Main App
-# =========================================================
+
 if model is None:
     st.warning("Please ensure your 'models/' and 'data/' folders are correctly placed in your repository.")
     st.stop()
 
 
-# =========================================================
-# Sidebar
-# =========================================================
+
 st.sidebar.image("https://www.nhs.uk/nhscms/img/nhs-logo.png", width=120)
 st.sidebar.title("Clinical Portal")
 
@@ -169,24 +158,18 @@ else:
     )
 
 
-# =========================================================
-# Dashboard Header
-# =========================================================
+
 st.title("🏥 NHS Health-Equity Optimizer")
 st.markdown("🔍 **Predictive Analytics for DNA (Did Not Attend) Risk Mitigation**")
 st.divider()
 
 
-# =========================================================
-# Patient Row + Prediction
-# =========================================================
+
 patient_row = features.iloc[[patient_id]]
 prob = all_probs[patient_id]
 
 
-# =========================================================
-# Metrics Row
-# =========================================================
+
 m1, m2, m3 = st.columns(3)
 
 with m1:
@@ -202,12 +185,10 @@ with m3:
     st.metric("IMD Decile", imd, delta=delta_text, delta_color="inverse")
 
 
-# =========================================================
-# SHAP + Intervention Section
-# =========================================================
+
 col_left, col_right = st.columns([1, 1.6])
 
-# ---------- SHAP Reasoning ----------
+
 with col_right:
     st.subheader("Decision Reasoning (XAI)")
 
@@ -221,7 +202,6 @@ with col_right:
         st.error(f"SHAP Plotting Error: {e}")
 
 
-# ---------- Intervention Logic ----------
 with col_left:
     st.subheader("📋 Clinical Intervention")
 
@@ -263,7 +243,4 @@ with col_left:
     st.dataframe(patient_row.T.rename(columns={patient_id: "Value"}), use_container_width=True)
 
 
-# =========================================================
-# Footer
-# =========================================================
 st.caption("NHS RAP Principles | Streamlit Dashboard | XGBoost + SHAP XAI")
